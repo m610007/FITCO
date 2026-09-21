@@ -1,0 +1,21 @@
+健身教練｜授權與出處
+
+【動作示範圖（img1/、img2/ 資料夾）與動作分類資料（data/exercises.json）】
+Original exercise artwork by Everkinetic (https://github.com/everkinetic/data),
+expanded by Bryl Lim (https://bryllim.com) — workout-guide
+(https://github.com/bryllim/workout-guide),
+licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+
+修改說明（Changes）：
+- 將每個動作的三張透明 PNG 分鏡裁切至共同邊界、縮放為 288×216 像素，
+  並合併成一張橫向三格的 WebP 圖片（img1/、img2/）。
+- data/exercises.json 中的中文名稱、動作模式、器材需求、難度與做法要點為本站新增；
+  英文名稱、主要／次要肌群與記錄類型取自 workout-guide 的資料。
+- 上述圖片與動作資料沿用 CC BY-SA 4.0 授權（相同方式分享）。
+
+【訓練與營養建議數字（data/rules.json）】
+主要依據 ACSM's Resources for the Personal Trainer, 6th ed. (2022) 的章節重點整理，
+僅保留數值、範圍與章節出處，文字為本站自行撰寫；未收錄該書的原文、表格或圖片。
+標示為「一般做法」的預設值為本站自訂，並非該書的規定。
+
+本站內容為一般健康成人的參考，不能取代醫師或營養師的建議。

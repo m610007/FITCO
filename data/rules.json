@@ -1,0 +1,352 @@
+{
+ "version": 1,
+ "sources": {
+  "acsm": "ACSM's Resources for the Personal Trainer, 6th ed. (2022)"
+ },
+ "phases": {
+  "cut": {
+   "label": "減脂",
+   "desc": "少吃一點、維持肌肉：熱量略低於消耗，蛋白質拉高，重量訓練照常做。",
+   "paces": [
+    {
+     "id": 1,
+     "label": "穩健",
+     "pct": -15
+    },
+    {
+     "id": 2,
+     "label": "標準",
+     "pct": -20
+    },
+    {
+     "id": 3,
+     "label": "積極",
+     "pct": -25
+    }
+   ],
+   "defaultPace": 2
+  },
+  "bulk": {
+   "label": "增肌",
+   "desc": "吃得夠、練得夠：熱量略高於消耗，蛋白質充足，重量循序漸進。",
+   "paces": [
+    {
+     "id": 1,
+     "label": "精實",
+     "pct": 5
+    },
+    {
+     "id": 2,
+     "label": "標準",
+     "pct": 10
+    }
+   ],
+   "defaultPace": 1
+  },
+  "maintain": {
+   "label": "維持",
+   "desc": "維持體重與體能：熱量約等於消耗，把訓練與飲食習慣穩定下來。",
+   "paces": [
+    {
+     "id": 1,
+     "label": "維持",
+     "pct": 0
+    }
+   ],
+   "defaultPace": 1
+  }
+ },
+ "activity": [
+  {
+   "id": "low",
+   "label": "低",
+   "mult": 1.375,
+   "hint": "多半坐著，一週運動 1–3 天"
+  },
+  {
+   "id": "mid",
+   "label": "中",
+   "mult": 1.55,
+   "hint": "日常常走動，一週運動 3–5 天"
+  },
+  {
+   "id": "high",
+   "label": "高",
+   "mult": 1.725,
+   "hint": "工作需要體力，或一週運動 6 天以上"
+  }
+ ],
+ "protein": {
+  "gPerKg": {
+   "cut": 2.0,
+   "bulk": 1.8,
+   "maintain": 1.6
+  },
+  "strengthRange": [
+   1.5,
+   2.0
+  ],
+  "activeRange": [
+   1.2,
+   2.0
+  ],
+  "rda": 0.8,
+  "postExGPerKg": 0.3,
+  "postExGrams": [
+   15,
+   25
+  ],
+  "src": "ACSM 第 6 章",
+  "basis": "acsm"
+ },
+ "fat": {
+  "pctKcal": [
+   20,
+   35
+  ],
+  "default": 25,
+  "src": "ACSM 第 6 章",
+  "basis": "acsm"
+ },
+ "carb": {
+  "pctKcal": [
+   45,
+   65
+  ],
+  "src": "ACSM 第 6 章",
+  "basis": "acsm"
+ },
+ "energy": {
+  "floorF": 1200,
+  "floorM": 1500,
+  "neverBelowBMR": true,
+  "src": "ACSM 第 6 章",
+  "basis": "acsm",
+  "note": "熱量不要壓到低於靜態代謝率；限制熱量時要把蛋白質顧好。"
+ },
+ "water": {
+  "perKgDefault": 33,
+  "min": 1500,
+  "basis": "general"
+ },
+ "hydration": {
+  "preMlPerKg": [
+   5,
+   10
+  ],
+  "preHoursBefore": [
+   2,
+   4
+  ],
+  "duringLPerHour": [
+   0.4,
+   0.8
+  ],
+  "postLPerKgLost": [
+   1.25,
+   1.5
+  ],
+  "src": "ACSM 第 6 章",
+  "basis": "acsm"
+ },
+ "resistance": {
+  "freqHealth": [
+   2,
+   3
+  ],
+  "noviceMaxRecommended": 3,
+  "intermediateSplitDays": 4,
+  "repRange": [
+   6,
+   20
+  ],
+  "order": [
+   "大肌群動作排在小肌群動作前",
+   "多關節動作排在單關節動作前",
+   "全身課表中，推與拉交替",
+   "全身課表中，上肢與下肢交替",
+   "最想加強的部位先做",
+   "由最吃力到最不吃力"
+  ],
+  "src": "ACSM 第 14 章",
+  "basis": "acsm"
+ },
+ "presc": {
+  "1": {
+   "compound": {
+    "sets": {
+     "bulk": 3,
+     "cut": 3,
+     "maintain": 2
+    },
+    "lo": 8,
+    "hi": 12,
+    "rest": 90
+   },
+   "iso": {
+    "sets": {
+     "bulk": 2,
+     "cut": 2,
+     "maintain": 2
+    },
+    "lo": 10,
+    "hi": 15,
+    "rest": 60
+   },
+   "bw": {
+    "lo": 8,
+    "hi": 15
+   },
+   "dur": {
+    "lo": 20,
+    "hi": 40
+   }
+  },
+  "2": {
+   "compound": {
+    "sets": {
+     "bulk": 4,
+     "cut": 3,
+     "maintain": 3
+    },
+    "lo": 6,
+    "hi": 10,
+    "rest": 120
+   },
+   "iso": {
+    "sets": {
+     "bulk": 3,
+     "cut": 3,
+     "maintain": 2
+    },
+    "lo": 10,
+    "hi": 15,
+    "rest": 75
+   },
+   "bw": {
+    "lo": 10,
+    "hi": 20
+   },
+   "dur": {
+    "lo": 30,
+    "hi": 50
+   }
+  },
+  "3": {
+   "compound": {
+    "sets": {
+     "bulk": 4,
+     "cut": 3,
+     "maintain": 3
+    },
+    "lo": 6,
+    "hi": 10,
+    "rest": 150
+   },
+   "iso": {
+    "sets": {
+     "bulk": 3,
+     "cut": 3,
+     "maintain": 3
+    },
+    "lo": 10,
+    "hi": 15,
+    "rest": 75
+   },
+   "bw": {
+    "lo": 10,
+    "hi": 20
+   },
+   "dur": {
+    "lo": 40,
+    "hi": 60
+   }
+  },
+  "coreSets": 2,
+  "src": "組數、次數、休息時間落在 ACSM 第 14 章建議範圍內（肌肥大：6–20 下；新手 1–3 組、休息 1–2 分鐘）；範圍內的預設值為本站設定。",
+  "basis": "acsm"
+ },
+ "progress": {
+  "stepKg": {
+   "barbell": 2.5,
+   "machine": 2.5,
+   "cable": 2.5,
+   "db": 2,
+   "other": 2.5
+  },
+  "loseFailTimes": 2,
+  "deloadPct": 10,
+  "basis": "general",
+  "note": "「達到次數上限就加重量」是常見的雙重漸進做法（一般做法），並非 ACSM 明訂的數字。"
+ },
+ "cardio": {
+  "weeklyModerateMin": 150,
+  "weeklyVigorousMin": 75,
+  "days": [
+   3,
+   5
+  ],
+  "src": "ACSM 第 15 章",
+  "basis": "acsm"
+ },
+ "flex": {
+  "holdSec": [
+   10,
+   30
+  ],
+  "reps": [
+   2,
+   4
+  ],
+  "totalSec": 60,
+  "days": [
+   2,
+   3
+  ],
+  "dynReps": [
+   5,
+   12
+  ],
+  "warmupMin": [
+   5,
+   10
+  ],
+  "src": "ACSM 第 16 章",
+  "basis": "acsm"
+ },
+ "weight": {
+  "lossKgPerWeek": [
+   0.5,
+   1.0
+  ],
+  "src": "ACSM 第 2 章",
+  "basis": "acsm"
+ },
+ "review": {
+  "minLoggedDays": 4,
+  "minWeighIns": 3,
+  "proteinDayRatio": 0.9,
+  "proteinDaysGoal": 5,
+  "kcalBand": 0.1,
+  "cut": {
+   "maxLossPerWeek": 1.0,
+   "minLossPerWeek": 0.2,
+   "stepKcal": 100
+  },
+  "bulk": {
+   "maxGainPerWeek": 0.5,
+   "minGainPerWeek": 0.1,
+   "stepKcal": 100
+  },
+  "maintain": {
+   "band": 0.3,
+   "stepKcal": 100
+  },
+  "reassessPct": 2,
+  "adjustCap": 300,
+  "waterRatio": 0.7,
+  "trainRatio": 0.6,
+  "basis": "general",
+  "note": "週回顧的門檻（例如一週體重變化多少算太快）是本站設定的一般做法；減脂速度上限 0.5–1 公斤／週來自 ACSM。"
+ }
+}
