@@ -1,10 +1,10 @@
 'use strict';
 /* ============ 健身教練｜coach.js ============
-   與「熱量錢包」(index.html) 放在同一個 repo。
-   本頁只讀取錢包的飲食紀錄，不會修改它；自己的資料存在 fitCoach.v1。 */
+   獨立運作的健身與飲食記錄網站，所有資料（訓練、飲食、體重、喝水、設定）
+   都存在同一份 fitCoach.v1 裡，不依賴任何其他網站。 */
 
 /* ---------- 工具 ---------- */
-const KEY = 'fitCoach.v1', WKEY = 'calorieWallet.v1';
+const KEY = 'fitCoach.v1';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -40,26 +40,29 @@ const GROUPS = [['all', '全部'], ['push', '推'], ['pull', '拉'], ['legs', '�
 const BW_BASE = { 0: '還做不到標準伏地挺身', 1: '標準伏地挺身可連續做 6–15 下', 2: '標準伏地挺身可做 15 下以上' };
 
 /* ---------- 資料載入 ---------- */
-let DATA = null, RULES = null, EXL = [], EXM = {}, CARDIO = [];
+let DATA = null, RULES = null, EXL = [], EXM = {}, CARDIO = [], FOODS = [], FOODM = {}, FOOD_CATS = [];
 async function loadData() {
   const get = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
-  const [a, b] = await Promise.all([get('data/exercises.json'), get('data/rules.json')]);
-  if (!a || !Array.isArray(a.exercises) || !b || !b.phases) throw new Error('資料格式不正確');
+  const [a, b, f] = await Promise.all([get('data/exercises.json'), get('data/rules.json'), get('data/foods_all.json')]);
+  if (!a || !Array.isArray(a.exercises) || !b || !b.phases || !Array.isArray(f)) throw new Error('資料格式不正確');
   DATA = a; RULES = b; EXL = a.exercises; CARDIO = a.cardio || [];
   EXM = {}; EXL.forEach(e => EXM[e.id] = e);
+  FOODS = f; FOODM = {}; FOODS.forEach(x => FOODM[x.id] = x);
+  FOOD_CATS = Array.from(new Set(FOODS.map(x => x.category)));
 }
 
 /* ---------- 儲存 ---------- */
 function defaultStore() {
-  return { version: 1, profile: null, plan: null, workouts: [], cardio: [], water: {}, body: [], adjust: { kcal: 0 }, active: null, lastBackup: null, applied: [] };
+  return { version: 2, profile: null, plan: null, workouts: [], cardio: [], water: {}, body: [], diet: {}, customFoods: [], adjust: { kcal: 0 }, active: null, lastBackup: null, applied: [] };
 }
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultStore();
     const s = Object.assign(defaultStore(), JSON.parse(raw));
-    ['workouts', 'cardio', 'body', 'applied'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
+    ['workouts', 'cardio', 'body', 'applied', 'customFoods'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
     if (!s.water || typeof s.water !== 'object') s.water = {};
+    if (!s.diet || typeof s.diet !== 'object') s.diet = {};
     if (!s.adjust || typeof s.adjust !== 'object') s.adjust = { kcal: 0 };
     return s;
   } catch (e) { return defaultStore(); }
@@ -70,14 +73,14 @@ function save() {
   catch (e) { toast('無法儲存資料，請確認瀏覽器沒有開啟無痕模式'); }
 }
 
-/* ---------- 讀取熱量錢包（唯讀） ---------- */
-function readWallet() {
-  try { const raw = localStorage.getItem(WKEY); if (!raw) return null; const w = JSON.parse(raw); return w && typeof w === 'object' ? w : null; }
-  catch (e) { return null; }
+/* ---------- 飲食紀錄（自己存，不依賴外部網站） ---------- */
+function dietDay(date, create) {
+  if (!store.diet[date]) { if (!create) return null; store.diet[date] = { entries: [] }; }
+  return store.diet[date];
 }
 function intake(date) {
-  const w = readWallet(); const d = w && w.days && w.days[date];
-  if (!d || !Array.isArray(d.entries)) return null;
+  const d = store.diet[date];
+  if (!d || !d.entries.length) return null;
   const r = { kcal: 0, p: 0, f: 0, c: 0, known: 0, unk: 0, kcalKnown: 0, n: d.entries.length, meals: { b: 0, l: 0, d: 0, o: 0 }, mealsKnown: false };
   for (const e of d.entries) {
     const k = num(e.kcal, 0); r.kcal += k;
@@ -89,6 +92,19 @@ function intake(date) {
     } else r.unk++;
   }
   return r;
+}
+function addFoodEntry(date, food, qty) {
+  const d = dietDay(date, true), now2 = now(), mk = food.protein != null;
+  const sc = v => mk ? round(v * qty, 1) : null;
+  // base 記錄每 1 份的營養素，之後調整份數只需重新相乘，不必回頭查食物庫（食物庫更新或自訂項目沒存進庫時也不會失效）
+  d.entries.push({ id: uid(), time: pad(now2.getHours()) + ':' + pad(now2.getMinutes()), foodId: food.id || null, name: food.name, brand: food.brand || '', emoji: food.emoji || '🍽️', cat: food.category || '', serving: food.serving || '1份', qty, base: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb }, kcal: Math.round(food.kcal * qty), protein: sc(food.protein), fat: sc(food.fat), carb: sc(food.carb) });
+  save();
+}
+function delEntry(date, id) { const d = dietDay(date); if (!d) return; d.entries = d.entries.filter(e => e.id !== id); save(); }
+function setQty(date, id, qty) {
+  const d = dietDay(date); if (!d) return; const e = d.entries.find(x => x.id === id); if (!e || !e.base) return;
+  qty = clamp(qty, 0.5, 20); const b = e.base, mk = b.protein != null, sc = v => mk ? round(v * qty, 1) : null;
+  e.qty = qty; e.kcal = Math.round(b.kcal * qty); e.protein = sc(b.protein); e.fat = sc(b.fat); e.carb = sc(b.carb); save();
 }
 
 /* ---------- 裝備與動作篩選 ---------- */
@@ -538,20 +554,47 @@ function sparkline(pts) {
   const P = pts.map(p => [6 + (p.x - x0) / dx * (W - 12), H - 8 - (p.y - y0) / dy * (H - 18)]);
   return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="近 4 週體重走勢，從 ' + fmt1(ys[0]) + ' 到 ' + fmt1(ys[ys.length - 1]) + ' 公斤"><polyline points="' + P.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' + P.map(p => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.6" fill="currentColor"/>').join('') + '</svg>';
 }
+function mealTag(t) { const h = parseInt(String(t || '').slice(0, 2), 10); return h >= 4 && h < 10 ? '早餐' : h >= 10 && h < 15 ? '午餐' : h >= 15 && h < 21 ? '晚餐' : '其他'; }
+function dietEntryList(date) {
+  const d = dietDay(date); if (!d || !d.entries.length) return '';
+  const rows = d.entries.slice().sort((a, b) => a.time < b.time ? -1 : 1).map(e => {
+    const qtyCtl = e.base ? '<span class="qty"><button data-action="dQty" data-id="' + esc(e.id) + '" data-d="-0.5">−</button><b>' + fmt1(e.qty) + '</b><button data-action="dQty" data-id="' + esc(e.id) + '" data-d="0.5">+</button></span>' : '';
+    return '<div class="fentry"><span class="femoji">' + esc(e.emoji || '🍽️') + '</span><span class="finfo"><b>' + esc(e.name) + '</b><small>' + esc(e.time) + '・' + esc(mealTag(e.time)) + (e.brand ? '・' + esc(e.brand) : '') + '</small></span>' + qtyCtl + '<span class="fkcal">' + fmt(e.kcal) + '<small>大卡</small></span><button class="x" data-action="dDel" data-id="' + esc(e.id) + '" aria-label="刪除「' + esc(e.name) + '」">×</button></div>';
+  }).join('');
+  return '<section class="card"><h2>今天的紀錄</h2><div class="flist">' + rows + '</div></section>';
+}
+function foodResults(q, cat) {
+  q = q.trim().toLowerCase();
+  let list = store.customFoods.concat(FOODS);
+  if (cat && cat !== 'all') list = list.filter(x => x.category === cat);
+  if (q) list = list.filter(x => x.name.toLowerCase().includes(q) || (x.brand && x.brand.toLowerCase().includes(q)));
+  return list.slice(0, 40);
+}
+function foodRow(f) { return '<button class="frow" data-action="foodPick" data-id="' + esc(f.id) + '"><span class="femoji">' + esc(f.emoji || '🍽️') + '</span><span class="finfo"><b>' + esc(f.name) + '</b><small>' + esc(f.brand ? f.brand + '・' : '') + esc(f.serving) + '</small></span><span class="fkcal">' + fmt(f.kcal) + '<small>大卡</small></span></button>'; }
+function sheetFoodAdd() {
+  ui.food = { q: '', cat: 'all' };
+  const list = foodResults('', 'all');
+  openSheet('<div class="sbody"><h2>記錄食物</h2><div class="search"><input id="foodq" type="search" placeholder="搜尋食物或品牌，例如「茶葉蛋」「全家」" data-autofocus></div>' +
+    '<div class="chips scrollx" id="foodcats" role="group" aria-label="食物分類"><button class="chip btnchip on" data-action="foodCat" data-c="all">全部</button>' + FOOD_CATS.map(c => '<button class="chip btnchip" data-action="foodCat" data-c="' + esc(c) + '">' + esc(c) + '</button>').join('') + '</div>' +
+    '<div class="flist" id="foodlist">' + list.map(foodRow).join('') + '</div>' +
+    '<button class="btn wide ghost" data-action="customToggle">找不到？手動輸入</button><div id="customForm" hidden></div><button class="btn wide" data-action="closeSheet">關閉</button></div>', 'tall');
+}
+function customFormHtml() {
+  return '<section class="card"><h3>手動輸入</h3><label class="fld"><span>名稱</span><input class="in" id="cfName" placeholder="例如：路邊攤炒麵"></label><div class="grid3"><label class="fld"><span>熱量 大卡</span><input class="in" id="cfKcal" inputmode="numeric"></label><label class="fld"><span>蛋白質 g</span><input class="in" id="cfP" inputmode="decimal" placeholder="不確定可留空"></label><label class="fld"><span>脂肪 g</span><input class="in" id="cfF" inputmode="decimal" placeholder="不確定可留空"></label></div><label class="fld"><span>碳水 g（不確定可留空）</span><input class="in" id="cfC" inputmode="decimal"></label><label class="switch"><input type="checkbox" id="cfSave" checked><span>記住這個項目，下次可以直接搜尋</span></label><p class="err" id="cfErr"></p><button class="btn primary wide" data-action="customSave">加入今天</button></section>';
+}
 function viewDiet() {
   const p = store.profile, T = targets(p), d = today(), R = intake(d), adj = store.adjust.kcal || 0, hy = hydration(p);
   const tgt = '<section class="card"><div class="cardhead"><h2>今日目標</h2>' + chipEl(PHASE_LABEL(p), 'phase') + '</div><div class="bigkcal"><b>' + fmt(T.kcal) + '</b><span>大卡' + (adj ? '（含教練調整 ' + (adj > 0 ? '+' : '') + adj + '）' : '') + '</span></div>' +
     '<div class="macros"><div><b>' + T.protein + '<small>g</small></b><span>蛋白質</span><i>' + T.pPct + '%</i></div><div><b>' + T.carb + '<small>g</small></b><span>碳水</span><i>' + T.cPct + '%</i></div><div><b>' + T.fat + '<small>g</small></b><span>脂肪</span><i>' + T.fPct + '%</i></div></div>' +
     (T.capped ? '<p class="warn">目標已套用安全下限（' + fmt(T.floor) + ' 大卡）。ACSM 提醒不要讓攝取低於靜態代謝率，建議放慢速度而不是再降熱量。</p>' : '') +
     '<details><summary>這些數字怎麼算的</summary><ul class="how"><li>基礎代謝 ' + fmt(T.bmr) + '、每日消耗約 ' + fmt(T.tdee) + ' 大卡（Mifflin-St Jeor 公式 × 活動係數，一般做法）。</li><li>' + esc(RULES.phases[p.phase].label) + '・' + esc(T.pace.label) + '：熱量 ' + (T.pace.pct > 0 ? '+' : '') + T.pace.pct + '%（一般做法）。</li><li>蛋白質 ' + RULES.protein.gPerKg[p.phase] + ' g/公斤（範圍 ' + T.proteinRange[0] + '–' + T.proteinRange[1] + ' g）。<span class="src">依據 ' + RULES.protein.src + '</span></li><li>脂肪約占 ' + RULES.fat.default + '%（建議範圍 ' + RULES.fat.pctKcal[0] + '–' + RULES.fat.pctKcal[1] + '%），碳水用剩下的熱量補足（一般建議 ' + RULES.carb.pctKcal[0] + '–' + RULES.carb.pctKcal[1] + '%）。<span class="src">依據 ' + RULES.fat.src + '</span></li><li>熱量下限：不低於估算的靜態代謝率，也不低於 ' + fmt(p.sex === 'm' ? RULES.energy.floorM : RULES.energy.floorF) + ' 大卡。<span class="src">依據 ' + RULES.energy.src + '</span></li></ul></details></section>';
-  let today_ = '';
-  if (!readWallet()) today_ = '<section class="card"><h2>今天吃了多少</h2><p class="muted">在這個瀏覽器上找不到「熱量錢包」的紀錄。先用熱量錢包記錄食物，這裡就會自動顯示。</p><p class="muted small">iPhone 提醒：從主畫面圖示打開的網頁，資料和 Safari 是分開的。請只用同一個入口（例如熱量錢包的圖示），再從錢包裡的「健身教練」連結進到這一頁。</p><a class="btn wide" href="https://m610007.github.io/FC/">打開熱量錢包</a></section>';
-  else if (!R || !R.n) today_ = '<section class="card"><h2>今天吃了多少</h2><p class="muted">今天還沒有飲食紀錄。</p><a class="btn wide" href="https://m610007.github.io/FC/">去記錄食物</a></section>';
+  let today_ = '<section class="card"><div class="cardhead"><h2>今天吃了多少</h2><button class="btn small primary" data-action="dietAdd">＋ 記錄食物</button></div>';
+  if (!R || !R.n) today_ += '<p class="muted">今天還沒有飲食紀錄。</p></section>';
   else {
     const cov = R.kcal > 0 ? R.kcalKnown / R.kcal : 0;
     const row = (l, v, t, u, cls) => '<div class="mrow"><span>' + l + '</span><span><b>' + fmt(v) + '</b> / ' + fmt(t) + ' ' + u + '</span></div>' + meter(v, t, cls);
-    today_ = '<section class="card"><div class="cardhead"><h2>今天吃了多少</h2><a class="more" href="https://m610007.github.io/FC/">去記錄</a></div>' + row('熱量', R.kcal, T.kcal, '大卡', '') + row('蛋白質', R.p, T.protein, 'g', 'prot') + row('碳水', R.c, T.carb, 'g', 'carb') + row('脂肪', R.f, T.fat, 'g', 'fat') +
-      (R.unk ? '<p class="muted small">有 ' + R.unk + ' 筆食物沒有營養素資料，沒有算進三大營養素（占今天熱量 ' + Math.round((1 - cov) * 100) + '%）。</p>' : '') + '</section>';
+    today_ += row('熱量', R.kcal, T.kcal, '大卡', '') + row('蛋白質', R.p, T.protein, 'g', 'prot') + row('碳水', R.c, T.carb, 'g', 'carb') + row('脂肪', R.f, T.fat, 'g', 'fat') +
+      (R.unk ? '<p class="muted small">有 ' + R.unk + ' 筆食物沒有營養素資料，沒有算進三大營養素（占今天熱量 ' + Math.round((1 - cov) * 100) + '%）。</p>' : '') + '</section>' + dietEntryList(d);
     if (R.mealsKnown) {
       const ref = Math.max(15, Math.round(p.weight * 0.3)), lab = { b: '早餐', l: '午餐', d: '晚餐', o: '其他時段' }, mx = Math.max(ref * 1.6, ...Object.values(R.meals));
       today_ += '<section class="card"><h2>蛋白質分布</h2>' + ['b', 'l', 'd', 'o'].map(k => '<div class="mrow"><span>' + lab[k] + '</span><span><b>' + Math.round(R.meals[k]) + '</b> g</span></div><div class="meter prot"><i style="width:' + clamp(R.meals[k] / mx * 100, 0, 100) + '%"></i><u style="left:' + clamp(ref / mx * 100, 0, 100) + '%"></u></div>').join('') + '<p class="muted small">直線是每餐約 ' + ref + ' g（體重 × 0.3）。把蛋白質分散在每一餐，比一餐吃很多更容易被用到。<span class="src gen">一般做法</span></p></section>';
@@ -575,8 +618,8 @@ function viewMe() {
   return '<section class="card"><div class="cardhead"><h2>目前設定</h2><button class="btn small" data-action="editProfile">修改</button></div><dl class="dl"><dt>階段</dt><dd>' + esc(PHASE_LABEL(p)) + '</dd><dt>身體</dt><dd>' + p.height + ' cm・' + fmt1(p.weight) + ' kg・' + p.age + ' 歲</dd><dt>場景</dt><dd>' + esc(presetLabel(p.preset)) + '（' + (eqs.length ? eqs.join('、') : '徒手') + '）</dd><dt>訓練</dt><dd>' + esc(LEVELS[p.level].label) + '・每週 ' + p.days + ' 天・' + esc(store.plan.split) + '</dd><dt>目標</dt><dd>' + fmt(T.kcal) + ' 大卡・蛋白質 ' + T.protein + ' g</dd></dl></section>' +
     '<section class="card"><h2>課表</h2><p class="muted small">動作不喜歡或器材被占用？在訓練中可以「換動作」。想整份重排就按下面的按鈕。</p><div class="row"><button class="btn" data-action="regenAsk">重新產生課表</button></div></section>' +
     '<section class="card"><h2>備份與還原</h2><p class="muted small">資料只存在這支手機的瀏覽器裡。換手機、清除瀏覽資料前請先備份。' + (lb ? '上次備份：' + dateLabel(lb) + '。' : '你還沒有備份過。') + '</p><div class="row"><button class="btn primary" data-action="backup">下載備份檔</button><label class="btn" tabindex="0">匯入備份<input type="file" id="importFile" accept="application/json,.json" hidden></label></div></section>' +
-    '<section class="card"><h2>關於與授權</h2><p class="muted small">動作示範圖：Original exercise artwork by <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a>, expanded by <a href="https://bryllim.com" target="_blank" rel="noopener">Bryl Lim</a> (<a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noopener">workout-guide</a>), licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>。本站已將圖片裁切、縮放，並把三個分鏡合併為一張 WebP 圖片，動作名稱、肌群、器材分類等資料也一併沿用同一授權標示。</p><p class="muted small">訓練與營養的建議數字，主要依據 ACSM’s Resources for the Personal Trainer（第 6 版, 2022）的章節重點整理，並在畫面上標示章節；標示「一般做法」的是本站自訂的預設值。內容為一般健康成人的參考，不能取代醫師或營養師的建議。有心血管、代謝疾病、懷孕或運動時胸痛、頭暈、呼吸困難等狀況，請先諮詢醫師。</p></section>' +
-    '<section class="card"><h2>危險區</h2><div class="row"><button class="btn danger" data-action="resetAsk">清除教練資料</button></div><p class="muted small">只會清除這個頁面的資料，熱量錢包不受影響。</p></section>';
+    '<section class="card"><h2>關於與授權</h2><p class="muted small">動作示範圖：Original exercise artwork by <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a>, expanded by <a href="https://bryllim.com" target="_blank" rel="noopener">Bryl Lim</a> (<a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noopener">workout-guide</a>), licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>。本站已將圖片裁切、縮放，並把三個分鏡合併為一張 WebP 圖片，動作名稱、肌群、器材分類等資料也一併沿用同一授權標示。</p><p class="muted small">食物資料庫（' + fmt(FOODS.length) + ' 筆）沿用你原本熱量記錄器的資料，內容以超商與連鎖餐飲品項為主，營養素為估算值，實際請以包裝標示為準。</p><p class="muted small">訓練與營養的建議數字，主要依據 ACSM’s Resources for the Personal Trainer（第 6 版, 2022）的章節重點整理，並在畫面上標示章節；標示「一般做法」的是本站自訂的預設值。內容為一般健康成人的參考，不能取代醫師或營養師的建議。有心血管、代謝疾病、懷孕或運動時胸痛、頭暈、呼吸困難等狀況，請先諮詢醫師。</p></section>' +
+    '<section class="card"><h2>危險區</h2><div class="row"><button class="btn danger" data-action="resetAsk">清除教練資料</button></div><p class="muted small">訓練、飲食、體重等所有紀錄都會一起清除。</p></section>';
 }
 
 function viewTab() {
@@ -688,10 +731,10 @@ function sheetConfirm(title, text, action, label, danger) {
 
 /* ---------- 首次設定 ---------- */
 function initOnb() {
-  const w = readWallet(), wp = (w && w.profile) || {}, p = store.profile;
+  const p = store.profile;
   const d = p ? Object.assign({}, p, { equip: Object.assign({}, p.equip) })
-    : { name: wp.name || '', sex: wp.sex === 'm' || wp.sex === 'f' ? wp.sex : null, age: wp.age || '', height: wp.height || '', weight: wp.weight || '', phase: null, pace: null, activity: 'mid', preset: null, equip: {}, level: null, days: 3, bwBase: 1 };
-  return { step: 1, d, edit: !!p, fromWallet: !p && !!(wp.age && wp.height && wp.weight) };
+    : { name: '', sex: null, age: '', height: '', weight: '', phase: null, pace: null, activity: 'mid', preset: null, equip: {}, level: null, days: 3, bwBase: 1 };
+  return { step: 1, d, edit: !!p };
 }
 function profFromOnb(d) {
   return { name: String(d.name || '').trim().slice(0, 12), sex: d.sex, age: +d.age, height: +d.height, weight: +d.weight, phase: d.phase, pace: d.pace, activity: d.activity, preset: d.preset, equip: EQ_KEYS.reduce((o, k) => (o[k] = d.equip[k] ? 1 : 0, o), {}), level: +d.level, days: +d.days, bwBase: d.bwBase == null ? 1 : +d.bwBase, createdAt: (store.profile && store.profile.createdAt) || today() };
@@ -701,7 +744,7 @@ function viewOnb() {
   const dots = '<div class="dots5" role="img" aria-label="步驟 ' + s + ' / 5">' + [1, 2, 3, 4, 5].map(i => '<i class="' + (i <= s ? 'on' : '') + '"></i>').join('') + '</div>';
   const ch = (k, v, t, on) => '<button class="chip btnchip' + (on ? ' on' : '') + '" data-action="ob" data-k="' + k + '" data-v="' + v + '" aria-pressed="' + !!on + '">' + t + '</button>';
   let body = '';
-  if (s === 1) body = '<h2>先認識你</h2><p class="muted">用來估算每天需要的熱量與蛋白質。' + (o.fromWallet ? '已從熱量錢包帶入，請確認。' : '') + '</p><label class="fld"><span>稱呼（選填）</span><input class="in" data-ob="name" maxlength="12" value="' + esc(d.name) + '"></label><div class="fld"><span>性別（用於估算代謝）</span><div class="chips">' + ch('sex', 'f', '女', d.sex === 'f') + ch('sex', 'm', '男', d.sex === 'm') + '</div></div><div class="grid3"><label class="fld"><span>年齡</span><input class="in" inputmode="numeric" data-ob="age" value="' + esc(d.age) + '"></label><label class="fld"><span>身高 cm</span><input class="in" inputmode="decimal" data-ob="height" value="' + esc(d.height) + '"></label><label class="fld"><span>體重 kg</span><input class="in" inputmode="decimal" data-ob="weight" value="' + esc(d.weight) + '"></label></div>';
+  if (s === 1) body = '<h2>先認識你</h2><p class="muted">用來估算每天需要的熱量與蛋白質。</p><label class="fld"><span>稱呼（選填）</span><input class="in" data-ob="name" maxlength="12" value="' + esc(d.name) + '"></label><div class="fld"><span>性別（用於估算代謝）</span><div class="chips">' + ch('sex', 'f', '女', d.sex === 'f') + ch('sex', 'm', '男', d.sex === 'm') + '</div></div><div class="grid3"><label class="fld"><span>年齡</span><input class="in" inputmode="numeric" data-ob="age" value="' + esc(d.age) + '"></label><label class="fld"><span>身高 cm</span><input class="in" inputmode="decimal" data-ob="height" value="' + esc(d.height) + '"></label><label class="fld"><span>體重 kg</span><input class="in" inputmode="decimal" data-ob="weight" value="' + esc(d.weight) + '"></label></div>';
   if (s === 2) {
     body = '<h2>你現在的階段</h2><div class="opts">' + Object.keys(RULES.phases).map(k => '<button class="opt' + (d.phase === k ? ' on' : '') + '" data-action="ob" data-k="phase" data-v="' + k + '" aria-pressed="' + (d.phase === k) + '"><b>' + esc(RULES.phases[k].label) + '</b><small>' + esc(RULES.phases[k].desc) + '</small></button>').join('') + '</div>';
     if (d.phase && RULES.phases[d.phase].paces.length > 1) body += '<div class="fld"><span>' + (d.phase === 'cut' ? '減脂速度' : '增肌速度') + '</span><div class="chips">' + RULES.phases[d.phase].paces.map(x => ch('pace', x.id, x.label + '（' + (x.pct > 0 ? '+' : '') + x.pct + '%）', d.pace === x.id)).join('') + '</div><p class="muted small">' + (d.phase === 'cut' ? '越積極越容易流失肌肉、也越難堅持。不確定就選「標準」。' : '不確定就選「精實」，看體重趨勢再調整。') + '</p></div>';
@@ -800,6 +843,21 @@ const H = {
   wdelAsk: t => { ui.delId = t.dataset.id; sheetConfirm('刪除這次訓練紀錄？', '刪除後無法復原，個人紀錄也會重新計算。', 'wdelDo', '刪除', true); },
   wdelDo: () => { store.workouts = store.workouts.filter(w => w.id !== ui.delId); save(); closeSheet(); render(); toast('已刪除'); },
   cardioAdd: () => sheetCardio(),
+  dietAdd: () => sheetFoodAdd(),
+  foodCat: t => { ui.food.cat = t.dataset.c; $$('#foodcats .chip').forEach(c => c.classList.toggle('on', c === t)); $('#foodlist').innerHTML = foodResults(ui.food.q, ui.food.cat).map(foodRow).join(''); },
+  foodPick: t => { const f = FOODM[t.dataset.id] || store.customFoods.find(x => x.id === t.dataset.id); if (!f) return; addFoodEntry(today(), f, 1); toast('已加入「' + f.name + '」'); render(); },
+  dQty: t => { const d = dietDay(today()), e = d && d.entries.find(x => x.id === t.dataset.id); if (e) setQty(today(), e.id, e.qty + (+t.dataset.d)); render(); },
+  dDel: t => { delEntry(today(), t.dataset.id); render(); },
+  customToggle: () => { const f = $('#customForm'); if (!f) return; f.hidden = !f.hidden; if (!f.hidden) f.innerHTML = customFormHtml(); },
+  customSave: () => {
+    const name = $('#cfName').value.trim(), kcal = num($('#cfKcal').value);
+    if (!name) { $('#cfErr').textContent = '請輸入名稱'; return; }
+    if (!(kcal >= 0 && kcal <= 5000)) { $('#cfErr').textContent = '請輸入合理的熱量（0–5000 大卡）'; return; }
+    const pv = num($('#cfP').value), fv = num($('#cfF').value), cv = num($('#cfC').value);
+    const f = { id: 'c' + uid(), name, emoji: '🍽️', category: '自訂', brand: '', serving: '1份', kcal, protein: pv, fat: fv, carb: cv };
+    if ($('#cfSave').checked) store.customFoods.unshift(f);
+    addFoodEntry(today(), f, 1); save(); toast('已加入「' + name + '」'); closeSheet(); render();
+  },
   cType: t => { ui.cardio.type = t.dataset.t; $$('#cTypes .chip').forEach(c => c.classList.toggle('on', c.dataset.t === ui.cardio.type)); },
   cInt: t => { ui.cardio.int = t.dataset.v; $$('.sheet .opt[data-action=cInt]').forEach(c => c.classList.toggle('on', c.dataset.v === ui.cardio.int)); },
   cSave: () => { const m = num($('#cMin').value); if (!(m >= 1 && m <= 600)) { $('#cErr').textContent = '時間請填 1–600 分鐘'; return; } store.cardio.push({ id: uid(), date: today(), type: ui.cardio.type, min: Math.round(m), int: ui.cardio.int }); save(); closeSheet(); toast('已記錄有氧 ' + Math.round(m) + ' 分鐘'); render(); },
@@ -854,6 +912,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'libq') { ui.libQ = t.value; const l = libList(); $('#libgrid').innerHTML = libGrid(l); $('#libcount').textContent = '共 ' + l.length + ' 個動作'; return; }
+  if (t.id === 'foodq') { ui.food.q = t.value; $('#foodlist').innerHTML = foodResults(ui.food.q, ui.food.cat).map(foodRow).join(''); return; }
   if (t.dataset && t.dataset.ob !== undefined) { ui.onb.d[t.dataset.ob] = t.value; return; }
   if (t.dataset && t.dataset.f && store.active && ui.screen === 'exercise') {
     const sl = store.active.slots[ui.exIdx], i = +t.dataset.i, f = t.dataset.f, v = t.value.trim() === '' ? null : num(t.value.replace(',', '.'));
@@ -872,7 +931,7 @@ document.addEventListener('change', e => {
         const d = JSON.parse(r.result);
         if (!d || typeof d !== 'object' || !d.profile || !d.profile.phase || !Array.isArray(d.workouts)) throw 0;
         const s = Object.assign(defaultStore(), d); delete s.exportedAt; ui.pendingImport = s;
-        sheetConfirm('還原這份備份？', '備份內有 ' + s.workouts.length + ' 次訓練紀錄。還原會取代目前的教練資料（熱量錢包不受影響）。', 'importDo', '還原', true);
+        sheetConfirm('還原這份備份？', '備份內有 ' + s.workouts.length + ' 次訓練紀錄。還原會取代目前的所有資料，包含訓練與飲食紀錄。', 'importDo', '還原', true);
       } catch (err) { toast('這不是有效的教練備份檔'); }
     };
     r.readAsText(f); t.value = '';
