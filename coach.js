@@ -545,12 +545,12 @@ function viewDiet() {
     (T.capped ? '<p class="warn">目標已套用安全下限（' + fmt(T.floor) + ' 大卡）。ACSM 提醒不要讓攝取低於靜態代謝率，建議放慢速度而不是再降熱量。</p>' : '') +
     '<details><summary>這些數字怎麼算的</summary><ul class="how"><li>基礎代謝 ' + fmt(T.bmr) + '、每日消耗約 ' + fmt(T.tdee) + ' 大卡（Mifflin-St Jeor 公式 × 活動係數，一般做法）。</li><li>' + esc(RULES.phases[p.phase].label) + '・' + esc(T.pace.label) + '：熱量 ' + (T.pace.pct > 0 ? '+' : '') + T.pace.pct + '%（一般做法）。</li><li>蛋白質 ' + RULES.protein.gPerKg[p.phase] + ' g/公斤（範圍 ' + T.proteinRange[0] + '–' + T.proteinRange[1] + ' g）。<span class="src">依據 ' + RULES.protein.src + '</span></li><li>脂肪約占 ' + RULES.fat.default + '%（建議範圍 ' + RULES.fat.pctKcal[0] + '–' + RULES.fat.pctKcal[1] + '%），碳水用剩下的熱量補足（一般建議 ' + RULES.carb.pctKcal[0] + '–' + RULES.carb.pctKcal[1] + '%）。<span class="src">依據 ' + RULES.fat.src + '</span></li><li>熱量下限：不低於估算的靜態代謝率，也不低於 ' + fmt(p.sex === 'm' ? RULES.energy.floorM : RULES.energy.floorF) + ' 大卡。<span class="src">依據 ' + RULES.energy.src + '</span></li></ul></details></section>';
   let today_ = '';
-  if (!readWallet()) today_ = '<section class="card"><h2>今天吃了多少</h2><p class="muted">在這個瀏覽器上找不到「熱量錢包」的紀錄。先用熱量錢包記錄食物，這裡就會自動顯示。</p><p class="muted small">iPhone 提醒：從主畫面圖示打開的網頁，資料和 Safari 是分開的。請只用同一個入口（例如熱量錢包的圖示），再從錢包裡的「健身教練」連結進到這一頁。</p><a class="btn wide" href="./">打開熱量錢包</a></section>';
-  else if (!R || !R.n) today_ = '<section class="card"><h2>今天吃了多少</h2><p class="muted">今天還沒有飲食紀錄。</p><a class="btn wide" href="./">去記錄食物</a></section>';
+  if (!readWallet()) today_ = '<section class="card"><h2>今天吃了多少</h2><p class="muted">在這個瀏覽器上找不到「熱量錢包」的紀錄。先用熱量錢包記錄食物，這裡就會自動顯示。</p><p class="muted small">iPhone 提醒：從主畫面圖示打開的網頁，資料和 Safari 是分開的。請只用同一個入口（例如熱量錢包的圖示），再從錢包裡的「健身教練」連結進到這一頁。</p><a class="btn wide" href="https://m610007.github.io/FC/">打開熱量錢包</a></section>';
+  else if (!R || !R.n) today_ = '<section class="card"><h2>今天吃了多少</h2><p class="muted">今天還沒有飲食紀錄。</p><a class="btn wide" href="https://m610007.github.io/FC/">去記錄食物</a></section>';
   else {
     const cov = R.kcal > 0 ? R.kcalKnown / R.kcal : 0;
     const row = (l, v, t, u, cls) => '<div class="mrow"><span>' + l + '</span><span><b>' + fmt(v) + '</b> / ' + fmt(t) + ' ' + u + '</span></div>' + meter(v, t, cls);
-    today_ = '<section class="card"><div class="cardhead"><h2>今天吃了多少</h2><a class="more" href="./">去記錄</a></div>' + row('熱量', R.kcal, T.kcal, '大卡', '') + row('蛋白質', R.p, T.protein, 'g', 'prot') + row('碳水', R.c, T.carb, 'g', 'carb') + row('脂肪', R.f, T.fat, 'g', 'fat') +
+    today_ = '<section class="card"><div class="cardhead"><h2>今天吃了多少</h2><a class="more" href="https://m610007.github.io/FC/">去記錄</a></div>' + row('熱量', R.kcal, T.kcal, '大卡', '') + row('蛋白質', R.p, T.protein, 'g', 'prot') + row('碳水', R.c, T.carb, 'g', 'carb') + row('脂肪', R.f, T.fat, 'g', 'fat') +
       (R.unk ? '<p class="muted small">有 ' + R.unk + ' 筆食物沒有營養素資料，沒有算進三大營養素（占今天熱量 ' + Math.round((1 - cov) * 100) + '%）。</p>' : '') + '</section>';
     if (R.mealsKnown) {
       const ref = Math.max(15, Math.round(p.weight * 0.3)), lab = { b: '早餐', l: '午餐', d: '晚餐', o: '其他時段' }, mx = Math.max(ref * 1.6, ...Object.values(R.meals));
