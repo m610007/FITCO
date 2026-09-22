@@ -212,3 +212,17 @@ body.inscreen .main{padding-bottom:120px}
   .step input{font-size:16px}
   .tick{width:42px}
 }
+
+/* 飲食紀錄 */
+.flist{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.frow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.fentry{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.fentry:first-child{border-top:0}
+.femoji{font-size:22px;flex:none;width:30px;text-align:center}
+.finfo{flex:1;min-width:0}.finfo b{display:block;font-size:14px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.finfo small{display:block;color:var(--muted);font-size:12px}
+.fkcal{font-weight:800;font-size:15px;white-space:nowrap}.fkcal small{font-weight:400;color:var(--muted);font-size:11px;margin-left:2px}
+.qty{display:flex;align-items:center;gap:6px;flex:none}
+.qty button{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--bg);font-size:16px;line-height:1;padding:0}
+.qty b{font-size:13px;min-width:26px;text-align:center}
+.fentry .x{background:none;border:0;color:var(--muted);font-size:20px;line-height:1;padding:0 4px;min-height:32px;flex:none}
+.wtag{display:block;color:var(--blue);font-size:11px;margin-top:1px}
