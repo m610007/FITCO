@@ -113,7 +113,7 @@ function exOk(e, eq) {
   return need.every(q => eq[q]);
 }
 function usesGear(e, eq) { return e.eq.some(q => eq[q]); }
-const FALLBACK = { pv: ['ph'], lv: ['lh'], hg: ['gl', 'lg'], lg: ['sq'], sq: ['lg'], gl: ['hg'], ld: ['rd'], rd: ['ld', 'lh'], tr: ['bi', 'pv'], bi: ['tr', 'lh'], ca: ['co'], ph: ['pv'], lh: ['lv'], co: ['ca'] };
+const FALLBACK = { pv: ['ph'], lv: ['lh'], hg: ['gl', 'lg'], lg: ['sq'], sq: ['lg'], gl: ['hg'], ld: ['rd'], rd: ['ld', 'lh'], tr: ['bi', 'pv'], bi: ['lv', 'tr', 'lh'], ca: ['co'], ph: ['pv'], lh: ['lv'], co: ['ca'] };
 function cands(pat, prof, used) {
   const eq = prof.equip, ml = prof.level, bb = prof.bwBase == null ? 1 : prof.bwBase;
   const list = EXL.filter(e => e.pat === pat && !e.warm && !e.cool && !used.has(e.id) && exOk(e, eq) &&
@@ -150,21 +150,50 @@ const TPL = {
   L2: { name: '下肢 B', pats: ['hg', 'sq', 'gl', 'lg', 'ca', 'co'] },
   PUSH: { name: '推日', pats: ['ph', 'pv', 'ph', 'ld', 'tr', 'tr'] },
   PULL: { name: '拉日', pats: ['lv', 'lh', 'rd', 'bi', 'bi'] },
-  LEGS: { name: '腿日', pats: ['sq', 'hg', 'lg', 'gl', 'ca', 'co'] }
+  LEGS: { name: '腿日', pats: ['sq', 'hg', 'lg', 'gl', 'ca', 'co'] },
+  // 部位分化：一天只練一到兩個部位，同一肌群一週只安排一次、刺激更集中
+  CHEST: { name: '胸日', pats: ['ph', 'ph', 'ph', 'ph', 'tr'] },
+  BACK: { name: '背日', pats: ['lv', 'lh', 'lv', 'lh', 'rd'] },
+  SHOULDER: { name: '肩日', pats: ['pv', 'pv', 'ld', 'ld', 'rd'] },
+  ARMS: { name: '手臂日', pats: ['bi', 'bi', 'tr', 'tr', 'co'] },
+  CORECALF: { name: '核心＋小腿', pats: ['co', 'co', 'co', 'ca', 'ca'] },
+  CT: { name: '胸＋三頭', pats: ['ph', 'ph', 'ph', 'tr', 'tr'] },
+  BB: { name: '背＋二頭', pats: ['lv', 'lv', 'lh', 'bi', 'bi'] },
+  SA: { name: '肩＋核心', pats: ['pv', 'pv', 'ld', 'rd', 'co'] }
 };
-const SPLITS = {
-  2: ['FB-A', 'FB-B'], 3: ['FB-A', 'FB-B', 'FB-C'], 4: ['U1', 'L1', 'U2', 'L2'],
-  5: ['PUSH', 'PULL', 'LEGS', 'U1', 'L1'], 6: ['PUSH', 'PULL', 'LEGS', 'PUSH', 'PULL', 'LEGS']
+// 每個訓練天數提供的分化方式：同一天數常有不只一種合理排法，讓使用者自己選
+const SPLIT_STYLES = {
+  2: [
+    { id: 'full', label: '全身', sub: '兩天都練全身，適合剛開始或時間有限', keys: ['FB-A', 'FB-B'] },
+    { id: 'ul', label: '上肢／下肢', sub: '一天上肢、一天下肢，恢復更完整', keys: ['U1', 'L1'] }
+  ],
+  3: [
+    { id: 'full', label: '全身', sub: '三天都練全身，適合新手打基礎', keys: ['FB-A', 'FB-B', 'FB-C'] },
+    { id: 'ppl', label: '推／拉／腿', sub: '依動作模式分工，一週各練一次', keys: ['PUSH', 'PULL', 'LEGS'] }
+  ],
+  4: [
+    { id: 'ul', label: '上肢／下肢', sub: '上肢、下肢各練兩次，頻率較高', keys: ['U1', 'L1', 'U2', 'L2'] },
+    { id: 'part4', label: '部位分化', sub: '胸三頭／背二頭／肩核心／腿，各練一次', keys: ['CT', 'BB', 'SA', 'LEGS'] }
+  ],
+  5: [
+    { id: 'ppl_ul', label: '推拉腿＋上下肢', sub: '綜合安排，兼顧頻率與訓練量', keys: ['PUSH', 'PULL', 'LEGS', 'U1', 'L1'] },
+    { id: 'bro5', label: '部位分化', sub: '胸／背／肩／腿／手臂各一天，經典排法', keys: ['CHEST', 'BACK', 'SHOULDER', 'LEGS', 'ARMS'] }
+  ],
+  6: [
+    { id: 'ppl2', label: '推拉腿 ×2', sub: '一週練兩輪，訓練量最大', keys: ['PUSH', 'PULL', 'LEGS', 'PUSH', 'PULL', 'LEGS'] },
+    { id: 'bro6', label: '部位分化', sub: '胸／背／肩／腿／手臂／核心小腿各一天', keys: ['CHEST', 'BACK', 'SHOULDER', 'LEGS', 'ARMS', 'CORECALF'] }
+  ]
 };
-const SPLIT_NAME = { 2: '全身 2 天', 3: '全身 3 天', 4: '上下肢分化', 5: '推拉腿＋上下肢', 6: '推拉腿 ×2' };
+function stylesFor(days) { return SPLIT_STYLES[days] || SPLIT_STYLES[3]; }
+function pickStyle(prof) { const s = stylesFor(prof.days); return s.find(x => x.id === prof.splitStyle) || s[0]; }
 function generatePlan(prof) {
-  const keys = SPLITS[prof.days] || SPLITS[3], rot = {}, seen = {};
+  const style = pickStyle(prof), keys = style.keys, rot = {}, seen = {};
   const sessions = keys.map((k, i) => {
     const t = TPL[k]; seen[k] = (seen[k] || 0) + 1;
     const name = t.name + (keys.filter(x => x === k).length > 1 ? ' ' + seen[k] : '');
     return { key: k + '-' + i, tpl: k, name, pats: t.pats.slice(), slots: resolveSlots(t.pats, prof, rot) };
   });
-  return { generatedAt: today(), split: SPLIT_NAME[prof.days] || '', sessions, nextIdx: 0 };
+  return { generatedAt: today(), split: style.label, styleId: style.id, sessions, nextIdx: 0 };
 }
 
 /* ---------- 處方（組數、次數、休息） ---------- */
@@ -733,11 +762,11 @@ function sheetConfirm(title, text, action, label, danger) {
 function initOnb() {
   const p = store.profile;
   const d = p ? Object.assign({}, p, { equip: Object.assign({}, p.equip) })
-    : { name: '', sex: null, age: '', height: '', weight: '', phase: null, pace: null, activity: 'mid', preset: null, equip: {}, level: null, days: 3, bwBase: 1 };
+    : { name: '', sex: null, age: '', height: '', weight: '', phase: null, pace: null, activity: 'mid', preset: null, equip: {}, level: null, days: 3, splitStyle: stylesFor(3)[0].id, bwBase: 1 };
   return { step: 1, d, edit: !!p };
 }
 function profFromOnb(d) {
-  return { name: String(d.name || '').trim().slice(0, 12), sex: d.sex, age: +d.age, height: +d.height, weight: +d.weight, phase: d.phase, pace: d.pace, activity: d.activity, preset: d.preset, equip: EQ_KEYS.reduce((o, k) => (o[k] = d.equip[k] ? 1 : 0, o), {}), level: +d.level, days: +d.days, bwBase: d.bwBase == null ? 1 : +d.bwBase, createdAt: (store.profile && store.profile.createdAt) || today() };
+  return { name: String(d.name || '').trim().slice(0, 12), sex: d.sex, age: +d.age, height: +d.height, weight: +d.weight, phase: d.phase, pace: d.pace, activity: d.activity, preset: d.preset, equip: EQ_KEYS.reduce((o, k) => (o[k] = d.equip[k] ? 1 : 0, o), {}), level: +d.level, days: +d.days, splitStyle: (stylesFor(+d.days).find(s => s.id === d.splitStyle) || stylesFor(+d.days)[0]).id, bwBase: d.bwBase == null ? 1 : +d.bwBase, createdAt: (store.profile && store.profile.createdAt) || today() };
 }
 function viewOnb() {
   const o = ui.onb, d = o.d, s = o.step;
@@ -753,7 +782,10 @@ function viewOnb() {
   if (s === 3) body = '<h2>你在哪裡練</h2><p class="muted">選最常用的場景。之後可以在每次訓練時臨時換場景，例如出差在家練。</p><div class="opts">' + Object.keys(PRESETS).map(k => '<button class="opt' + (d.preset === k ? ' on' : '') + '" data-action="ob" data-k="preset" data-v="' + k + '" aria-pressed="' + (d.preset === k) + '"><b>' + PRESETS[k].label + '</b><small>' + PRESETS[k].sub + '</small></button>').join('') + '</div>' + (d.preset ? '<div class="fld"><span>你有的器材（可微調）</span><div class="chips">' + EQ_KEYS.map(k => '<button class="chip btnchip' + (d.equip[k] ? ' on' : '') + '" data-action="obEq" data-k="' + k + '" aria-pressed="' + !!d.equip[k] + '">' + EQ_LABEL[k] + '</button>').join('') + '</div><p class="muted small">長凳與單槓會解鎖更多動作，例如啞鈴臥推與引體向上。</p></div>' : '');
   if (s === 4) {
     const showBw = !(d.equip.db || d.equip.machine || d.equip.barbell || d.equip.cable);
-    body = '<h2>訓練經驗與頻率</h2><div class="opts">' + [1, 2, 3].map(k => '<button class="opt slim' + (+d.level === k ? ' on' : '') + '" data-action="ob" data-k="level" data-v="' + k + '" aria-pressed="' + (+d.level === k) + '"><b>' + LEVELS[k].label + '</b><small>' + LEVELS[k].sub + '</small></button>').join('') + '</div><div class="fld"><span>每週訓練天數</span><div class="chips">' + [2, 3, 4, 5, 6].map(k => ch('days', k, k + ' 天', +d.days === k)).join('') + '</div><p class="muted small">' + (+d.level === 1 && +d.days > 3 ? 'ACSM 對新手與健康導向的建議是每週 2–3 天全身訓練。可以先從 3 天開始，穩定後再增加。' : '選你「一定做得到」的天數，比理想天數更重要。') + '</p></div>' + (showBw ? '<div class="fld"><span>徒手的推力基礎</span><div class="opts">' + [0, 1, 2].map(k => '<button class="opt slim' + (+d.bwBase === k ? ' on' : '') + '" data-action="ob" data-k="bwBase" data-v="' + k + '" aria-pressed="' + (+d.bwBase === k) + '"><b>' + BW_BASE[k] + '</b></button>').join('') + '</div></div>' : '');
+    const styles = stylesFor(+d.days);
+    body = '<h2>訓練經驗與頻率</h2><div class="opts">' + [1, 2, 3].map(k => '<button class="opt slim' + (+d.level === k ? ' on' : '') + '" data-action="ob" data-k="level" data-v="' + k + '" aria-pressed="' + (+d.level === k) + '"><b>' + LEVELS[k].label + '</b><small>' + LEVELS[k].sub + '</small></button>').join('') + '</div><div class="fld"><span>每週訓練天數</span><div class="chips">' + [2, 3, 4, 5, 6].map(k => ch('days', k, k + ' 天', +d.days === k)).join('') + '</div><p class="muted small">' + (+d.level === 1 && +d.days > 3 ? 'ACSM 對新手與健康導向的建議是每週 2–3 天全身訓練。可以先從 3 天開始，穩定後再增加。' : '選你「一定做得到」的天數，比理想天數更重要。') + '</p></div>' +
+      (styles.length > 1 ? '<div class="fld"><span>訓練怎麼分配（' + d.days + ' 天可以這樣排）</span><div class="opts">' + styles.map(st => '<button class="opt' + (d.splitStyle === st.id ? ' on' : '') + '" data-action="ob" data-k="splitStyle" data-v="' + st.id + '" aria-pressed="' + (d.splitStyle === st.id) + '"><b>' + esc(st.label) + '</b><small>' + esc(st.sub) + '</small></button>').join('') + '</div></div>' : '') +
+      (showBw ? '<div class="fld"><span>徒手的推力基礎</span><div class="opts">' + [0, 1, 2].map(k => '<button class="opt slim' + (+d.bwBase === k ? ' on' : '') + '" data-action="ob" data-k="bwBase" data-v="' + k + '" aria-pressed="' + (+d.bwBase === k) + '"><b>' + BW_BASE[k] + '</b></button>').join('') + '</div></div>' : '');
   }
   if (s === 5) {
     const prof = profFromOnb(d), T = targets(prof, o.edit ? store.adjust.kcal || 0 : 0), plan = generatePlan(prof);
@@ -772,7 +804,7 @@ function obValidate(o) {
   }
   if (s === 2) { if (!d.phase) return '請選擇一個階段'; if (!d.pace) return '請選擇速度'; if (!d.activity) return '請選擇活動量'; }
   if (s === 3) { if (!d.preset) return '請選擇你在哪裡練'; }
-  if (s === 4) { if (!d.level) return '請選擇訓練經驗'; if (!(+d.days >= 2 && +d.days <= 6)) return '請選擇每週天數'; }
+  if (s === 4) { if (!d.level) return '請選擇訓練經驗'; if (!(+d.days >= 2 && +d.days <= 6)) return '請選擇每週天數'; if (!stylesFor(+d.days).find(x => x.id === d.splitStyle)) return '請選擇訓練怎麼分配'; }
   return '';
 }
 
@@ -874,7 +906,7 @@ const H = {
   importDo: () => { store = ui.pendingImport; ui.pendingImport = null; store.active = null; if (!store.plan && store.profile) store.plan = generatePlan(store.profile); save(); closeSheet(); render(false); toast('已還原備份'); },
   resetAsk: () => sheetConfirm('清除教練資料？', '訓練紀錄、體重、喝水、課表與設定都會刪除，無法復原。建議先下載備份。', 'resetDo', '全部清除', true),
   resetDo: () => { localStorage.removeItem(KEY); store = defaultStore(); ui.onb = initOnb(); ui.tab = 'today'; ui.screen = null; closeSheet(); render(false); },
-  ob: t => { const o = ui.onb, k = t.dataset.k, raw = t.dataset.v, v = /^\d+$/.test(raw) ? +raw : raw; o.d[k] = v; if (k === 'phase') o.d.pace = RULES.phases[v].defaultPace; if (k === 'preset') o.d.equip = Object.assign({}, PRESETS[v].equip); render(); },
+  ob: t => { const o = ui.onb, k = t.dataset.k, raw = t.dataset.v, v = /^\d+$/.test(raw) ? +raw : raw; o.d[k] = v; if (k === 'phase') o.d.pace = RULES.phases[v].defaultPace; if (k === 'preset') o.d.equip = Object.assign({}, PRESETS[v].equip); if (k === 'days') { const styles = stylesFor(v); if (!styles.find(s => s.id === o.d.splitStyle)) o.d.splitStyle = styles[0].id; } render(); },
   obEq: t => { const o = ui.onb; o.d.equip[t.dataset.k] = o.d.equip[t.dataset.k] ? 0 : 1; render(); },
   obBack: () => go(() => { ui.onb.step--; }),
   obCancel: () => go(() => { ui.onb = null; }),
@@ -883,7 +915,7 @@ const H = {
     if (err) { $('#obErr').textContent = err; return; }
     if (o.step < 5) { go(() => { o.step++; }); return; }
     const prof = profFromOnb(o.d), old = store.profile;
-    const regen = !old || !store.plan || ['preset', 'level', 'days', 'bwBase'].some(k => old[k] !== prof[k]) || EQ_KEYS.some(k => old.equip[k] !== prof.equip[k]);
+    const regen = !old || !store.plan || ['preset', 'level', 'days', 'splitStyle', 'bwBase'].some(k => old[k] !== prof[k]) || EQ_KEYS.some(k => old.equip[k] !== prof.equip[k]);
     store.profile = prof; if (regen) store.plan = generatePlan(prof);
     if (!old) store.adjust = { kcal: 0 };
     save(); const edit = o.edit; ui.onb = null; ui.tab = edit ? 'me' : 'today'; render(false); window.scrollTo(0, 0); toast(edit ? '設定已儲存' + (regen ? '，課表已重新產生' : '') : '設定完成，開始第一次訓練吧');
