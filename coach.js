@@ -78,6 +78,19 @@ function dietDay(date, create) {
   if (!store.diet[date]) { if (!create) return null; store.diet[date] = { entries: [] }; }
   return store.diet[date];
 }
+// 從「份量」欄位解析出液體毫升數：只在分類是「飲料」時嘗試，避免把零食的公克數誤算成水分。
+// 毫升/ml/cc 直接採用；公升(L)換算 ×1000；公克(g) 用飲料密度接近水的特性，當作等量毫升估算。
+function parseVolumeML(category, serving) {
+  if (category !== '飲料' || !serving) return null;
+  let m = serving.match(/([\d.]+)\s*(?:毫升|ml|ML|cc|CC)/);
+  if (m) return Math.round(+m[1]);
+  m = serving.match(/([\d.]+)\s*(?:公升|L)(?![a-zA-Z])/);
+  if (m) return Math.round(+m[1] * 1000);
+  m = serving.match(/([\d.]+)\s*(?:公克|g)(?![a-zA-Z])/);
+  if (m) return Math.round(+m[1]);
+  return null;
+}
+function addWater(date, ml) { if (!ml) return; store.water[date] = Math.max(0, (store.water[date] || 0) + ml); }
 function intake(date) {
   const d = store.diet[date];
   if (!d || !d.entries.length) return null;
@@ -96,15 +109,25 @@ function intake(date) {
 function addFoodEntry(date, food, qty) {
   const d = dietDay(date, true), now2 = now(), mk = food.protein != null;
   const sc = v => mk ? round(v * qty, 1) : null;
-  // base 記錄每 1 份的營養素，之後調整份數只需重新相乘，不必回頭查食物庫（食物庫更新或自訂項目沒存進庫時也不會失效）
-  d.entries.push({ id: uid(), time: pad(now2.getHours()) + ':' + pad(now2.getMinutes()), foodId: food.id || null, name: food.name, brand: food.brand || '', emoji: food.emoji || '🍽️', cat: food.category || '', serving: food.serving || '1份', qty, base: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb }, kcal: Math.round(food.kcal * qty), protein: sc(food.protein), fat: sc(food.fat), carb: sc(food.carb) });
+  // mlPerServing：自訂項目可以直接指定（cfMl 欄位）；食物庫的品項則從分類＋份量字串解析。
+  const mlPer = food.mlPerServing != null ? food.mlPerServing : parseVolumeML(food.category, food.serving);
+  const waterMl = mlPer != null ? Math.round(mlPer * qty) : 0;
+  // base 記錄每 1 份的營養素與毫升數，之後調整份數只需重新相乘，不必回頭查食物庫（食物庫更新或自訂項目沒存進庫時也不會失效）
+  d.entries.push({ id: uid(), time: pad(now2.getHours()) + ':' + pad(now2.getMinutes()), foodId: food.id || null, name: food.name, brand: food.brand || '', emoji: food.emoji || '🍽️', cat: food.category || '', serving: food.serving || '1份', qty, base: { kcal: food.kcal, protein: food.protein, fat: food.fat, carb: food.carb, ml: mlPer }, kcal: Math.round(food.kcal * qty), protein: sc(food.protein), fat: sc(food.fat), carb: sc(food.carb), waterMl });
+  addWater(date, waterMl);
   save();
 }
-function delEntry(date, id) { const d = dietDay(date); if (!d) return; d.entries = d.entries.filter(e => e.id !== id); save(); }
+function delEntry(date, id) {
+  const d = dietDay(date); if (!d) return; const e = d.entries.find(x => x.id === id);
+  if (e && e.waterMl) addWater(date, -e.waterMl);
+  d.entries = d.entries.filter(x => x.id !== id); save();
+}
 function setQty(date, id, qty) {
   const d = dietDay(date); if (!d) return; const e = d.entries.find(x => x.id === id); if (!e || !e.base) return;
   qty = clamp(qty, 0.5, 20); const b = e.base, mk = b.protein != null, sc = v => mk ? round(v * qty, 1) : null;
-  e.qty = qty; e.kcal = Math.round(b.kcal * qty); e.protein = sc(b.protein); e.fat = sc(b.fat); e.carb = sc(b.carb); save();
+  const newWater = b.ml != null ? Math.round(b.ml * qty) : 0;
+  addWater(date, newWater - (e.waterMl || 0));
+  e.qty = qty; e.kcal = Math.round(b.kcal * qty); e.protein = sc(b.protein); e.fat = sc(b.fat); e.carb = sc(b.carb); e.waterMl = newWater; save();
 }
 
 /* ---------- 裝備與動作篩選 ---------- */
@@ -588,7 +611,8 @@ function dietEntryList(date) {
   const d = dietDay(date); if (!d || !d.entries.length) return '';
   const rows = d.entries.slice().sort((a, b) => a.time < b.time ? -1 : 1).map(e => {
     const qtyCtl = e.base ? '<span class="qty"><button data-action="dQty" data-id="' + esc(e.id) + '" data-d="-0.5">−</button><b>' + fmt1(e.qty) + '</b><button data-action="dQty" data-id="' + esc(e.id) + '" data-d="0.5">+</button></span>' : '';
-    return '<div class="fentry"><span class="femoji">' + esc(e.emoji || '🍽️') + '</span><span class="finfo"><b>' + esc(e.name) + '</b><small>' + esc(e.time) + '・' + esc(mealTag(e.time)) + (e.brand ? '・' + esc(e.brand) : '') + '</small></span>' + qtyCtl + '<span class="fkcal">' + fmt(e.kcal) + '<small>大卡</small></span><button class="x" data-action="dDel" data-id="' + esc(e.id) + '" aria-label="刪除「' + esc(e.name) + '」">×</button></div>';
+    const waterTag = e.waterMl ? '<small class="wtag">💧 已計入喝水 ' + fmt(e.waterMl) + ' mL</small>' : '';
+    return '<div class="fentry"><span class="femoji">' + esc(e.emoji || '🍽️') + '</span><span class="finfo"><b>' + esc(e.name) + '</b><small>' + esc(e.time) + '・' + esc(mealTag(e.time)) + (e.brand ? '・' + esc(e.brand) : '') + '</small>' + waterTag + '</span>' + qtyCtl + '<span class="fkcal">' + fmt(e.kcal) + '<small>大卡</small></span><button class="x" data-action="dDel" data-id="' + esc(e.id) + '" aria-label="刪除「' + esc(e.name) + '」">×</button></div>';
   }).join('');
   return '<section class="card"><h2>今天的紀錄</h2><div class="flist">' + rows + '</div></section>';
 }
@@ -599,7 +623,10 @@ function foodResults(q, cat) {
   if (q) list = list.filter(x => x.name.toLowerCase().includes(q) || (x.brand && x.brand.toLowerCase().includes(q)));
   return list.slice(0, 40);
 }
-function foodRow(f) { return '<button class="frow" data-action="foodPick" data-id="' + esc(f.id) + '"><span class="femoji">' + esc(f.emoji || '🍽️') + '</span><span class="finfo"><b>' + esc(f.name) + '</b><small>' + esc(f.brand ? f.brand + '・' : '') + esc(f.serving) + '</small></span><span class="fkcal">' + fmt(f.kcal) + '<small>大卡</small></span></button>'; }
+function foodRow(f) {
+  const ml = f.mlPerServing != null ? f.mlPerServing : parseVolumeML(f.category, f.serving);
+  return '<button class="frow" data-action="foodPick" data-id="' + esc(f.id) + '"><span class="femoji">' + esc(f.emoji || '🍽️') + '</span><span class="finfo"><b>' + esc(f.name) + '</b><small>' + esc(f.brand ? f.brand + '・' : '') + esc(f.serving) + '</small>' + (ml ? '<small class="wtag">💧 記錄後自動 +' + fmt(ml) + ' mL 喝水</small>' : '') + '</span><span class="fkcal">' + fmt(f.kcal) + '<small>大卡</small></span></button>';
+}
 function sheetFoodAdd() {
   ui.food = { q: '', cat: 'all' };
   const list = foodResults('', 'all');
@@ -609,7 +636,7 @@ function sheetFoodAdd() {
     '<button class="btn wide ghost" data-action="customToggle">找不到？手動輸入</button><div id="customForm" hidden></div><button class="btn wide" data-action="closeSheet">關閉</button></div>', 'tall');
 }
 function customFormHtml() {
-  return '<section class="card"><h3>手動輸入</h3><label class="fld"><span>名稱</span><input class="in" id="cfName" placeholder="例如：路邊攤炒麵"></label><div class="grid3"><label class="fld"><span>熱量 大卡</span><input class="in" id="cfKcal" inputmode="numeric"></label><label class="fld"><span>蛋白質 g</span><input class="in" id="cfP" inputmode="decimal" placeholder="不確定可留空"></label><label class="fld"><span>脂肪 g</span><input class="in" id="cfF" inputmode="decimal" placeholder="不確定可留空"></label></div><label class="fld"><span>碳水 g（不確定可留空）</span><input class="in" id="cfC" inputmode="decimal"></label><label class="switch"><input type="checkbox" id="cfSave" checked><span>記住這個項目，下次可以直接搜尋</span></label><p class="err" id="cfErr"></p><button class="btn primary wide" data-action="customSave">加入今天</button></section>';
+  return '<section class="card"><h3>手動輸入</h3><label class="fld"><span>名稱</span><input class="in" id="cfName" placeholder="例如：路邊攤炒麵"></label><div class="grid3"><label class="fld"><span>熱量 大卡</span><input class="in" id="cfKcal" inputmode="numeric"></label><label class="fld"><span>蛋白質 g</span><input class="in" id="cfP" inputmode="decimal" placeholder="不確定可留空"></label><label class="fld"><span>脂肪 g</span><input class="in" id="cfF" inputmode="decimal" placeholder="不確定可留空"></label></div><label class="fld"><span>碳水 g（不確定可留空）</span><input class="in" id="cfC" inputmode="decimal"></label><label class="fld"><span>是飲料的話，填液體份量 mL（會自動加進今天的喝水紀錄）</span><input class="in" id="cfMl" inputmode="numeric" placeholder="不是飲料可留空"></label><label class="switch"><input type="checkbox" id="cfSave" checked><span>記住這個項目，下次可以直接搜尋</span></label><p class="err" id="cfErr"></p><button class="btn primary wide" data-action="customSave">加入今天</button></section>';
 }
 function viewDiet() {
   const p = store.profile, T = targets(p), d = today(), R = intake(d), adj = store.adjust.kcal || 0, hy = hydration(p);
@@ -632,7 +659,7 @@ function viewDiet() {
   const trained = trainedToday(), wk = weekInfo();
   const around = '<section class="card"><h2>' + (trained ? '練完了：補充與恢復' : '訓練前後怎麼吃喝') + '</h2><ul class="how"><li>訓練前 2–4 小時：喝 ' + hy.pre[0] + '–' + hy.pre[1] + ' mL 水，並吃一餐或點心。</li><li>訓練中：每小時 ' + hy.during[0] + '–' + hy.during[1] + ' 公升，固定間隔小口喝。</li><li>訓練後：補約 ' + hy.postProtein + ' g 蛋白質（15–25 g）；流汗多的話，體重每少 1 公斤補 ' + hy.post[0] + '–' + hy.post[1] + ' 公升水。</li></ul><p class="muted small"><span class="src">依據 ' + RULES.hydration.src + '</span>　' + (wk.done >= p.days ? '本週訓練目標已完成，' : '') + '休息日的熱量與蛋白質目標維持不變。</p></section>';
   const wg = waterGoal(p), wv = store.water[d] || 0;
-  const water = '<section class="card"><div class="cardhead"><h2>喝水</h2><span class="muted"><b class="big">' + fmt(wv) + '</b> / ' + fmt(wg) + ' mL</span></div>' + meter(wv, wg, 'water') + '<div class="row"><button class="btn small" data-action="water" data-ml="250">+250</button><button class="btn small" data-action="water" data-ml="500">+500</button><button class="btn small ghost" data-action="water" data-ml="-250">−250</button></div><p class="muted small">每日目標 ' + fmt(wg) + ' mL 是一般估算（體重 × ' + RULES.water.perKgDefault + ' mL），可依天氣與流汗量調整；尿液維持淡黃色是不錯的指標。</p></section>';
+  const water = '<section class="card"><div class="cardhead"><h2>喝水</h2><span class="muted"><b class="big">' + fmt(wv) + '</b> / ' + fmt(wg) + ' mL</span></div>' + meter(wv, wg, 'water') + '<div class="row"><button class="btn small" data-action="water" data-ml="250">+250</button><button class="btn small" data-action="water" data-ml="500">+500</button><button class="btn small ghost" data-action="water" data-ml="-250">−250</button></div><p class="muted small">每日目標 ' + fmt(wg) + ' mL 是一般估算（體重 × ' + RULES.water.perKgDefault + ' mL），可依天氣與流汗量調整；尿液維持淡黃色是不錯的指標。飲食紀錄裡的飲料（豆漿、手搖飲等）已自動算進來，不用再手動加一次；含咖啡因或酒精的飲料利尿效果較強，實際補水效果會打折。</p></section>';
   const t28 = store.body.filter(b => b.date >= addDays(d, -27) && b.weight > 0).sort((a, b) => a.date < b.date ? -1 : 1);
   const a7 = avgWeight(addDays(d, -6), d), lw = latestWeight(), tw = weightsIn(d, d)[0];
   const body = '<section class="card"><div class="cardhead"><h2>體重</h2><span class="muted">' + (a7 ? '7 天平均 <b class="big">' + fmt1(a7.avg) + '</b> kg' : '尚無紀錄') + '</span></div>' + sparkline(t28.map(b => ({ x: parseD(b.date).getTime(), y: b.weight }))) +
@@ -885,10 +912,12 @@ const H = {
     const name = $('#cfName').value.trim(), kcal = num($('#cfKcal').value);
     if (!name) { $('#cfErr').textContent = '請輸入名稱'; return; }
     if (!(kcal >= 0 && kcal <= 5000)) { $('#cfErr').textContent = '請輸入合理的熱量（0–5000 大卡）'; return; }
-    const pv = num($('#cfP').value), fv = num($('#cfF').value), cv = num($('#cfC').value);
-    const f = { id: 'c' + uid(), name, emoji: '🍽️', category: '自訂', brand: '', serving: '1份', kcal, protein: pv, fat: fv, carb: cv };
+    const mlRaw = $('#cfMl').value.trim();
+    if (mlRaw !== '' && !(num(mlRaw) >= 0 && num(mlRaw) <= 3000)) { $('#cfErr').textContent = '液體份量請填 0–3000 mL，或留空'; return; }
+    const pv = num($('#cfP').value), fv = num($('#cfF').value), cv = num($('#cfC').value), mlv = mlRaw === '' ? null : Math.round(num(mlRaw));
+    const f = { id: 'c' + uid(), name, emoji: mlv != null ? '🥤' : '🍽️', category: mlv != null ? '飲料' : '自訂', brand: '', serving: mlv != null ? '1份（' + mlv + '毫升）' : '1份', kcal, protein: pv, fat: fv, carb: cv, mlPerServing: mlv };
     if ($('#cfSave').checked) store.customFoods.unshift(f);
-    addFoodEntry(today(), f, 1); save(); toast('已加入「' + name + '」'); closeSheet(); render();
+    addFoodEntry(today(), f, 1); save(); toast('已加入「' + name + '」' + (mlv ? '，喝水 +' + mlv + ' mL' : '')); closeSheet(); render();
   },
   cType: t => { ui.cardio.type = t.dataset.t; $$('#cTypes .chip').forEach(c => c.classList.toggle('on', c.dataset.t === ui.cardio.type)); },
   cInt: t => { ui.cardio.int = t.dataset.v; $$('.sheet .opt[data-action=cInt]').forEach(c => c.classList.toggle('on', c.dataset.v === ui.cardio.int)); },
